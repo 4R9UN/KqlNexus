@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RAG Chat Application</title>
+  <!-- Bootstrap CSS -->
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <!-- Marked.js for Markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    @media (max-width: 767px) {
+      .sidebar { display: none; }
+      .main-content { margin: 0; padding: 10px; }
+    }
+    @media (min-width: 768px) {
+      .sidebar { position: fixed; top: 0; left: 0; width: 200px; height: 100vh; overflow-y: auto; }
+      .main-content { margin-left: 220px; padding: 20px; }
+    }
+    #chat-history { height: 60vh; overflow-y: auto; }
+    .suggested-kql-btn { margin-top: 10px; }
+  </style>
+</head>
+<body>
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar Navigation -->
+    <nav class="col-md-2 d-none d-md-block bg-light sidebar">
+      <div class="sidebar-sticky pt-3">
+        <ul class="nav flex-column">
+          <li class="nav-item"><a class="nav-link active" href="#chatTab" data-toggle="tab">Chat</a></li>
+          <li class="nav-item"><a class="nav-link" href="#uploadTab" data-toggle="tab">File Upload</a></li>
+          <li class="nav-item"><a class="nav-link" href="#urlTab" data-toggle="tab">URL Input</a></li>
+          <li class="nav-item"><a class="nav-link" href="#kqlTab" data-toggle="tab">KQL Query</a></li>
+          <li class="nav-item"><a class="nav-link" href="/settings">Settings</a></li>
+        </ul>
+      </div>
+    </nav>
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <div class="tab-content">
+        <!-- Chat Tab -->
+        <div class="tab-pane active" id="chatTab">
+          <h2>Chat with AI (RAG Mode)</h2>
+          <p>KQL Auth Status: <strong>{{ kql_auth_status }}</strong></p>
+          <div id="chat-history" class="border p-2 mb-3"></div>
+          <form id="chat-form">
+            <div class="form-group">
+              <input type="text" class="form-control" id="chat-prompt" placeholder="Enter your prompt">
+            </div>
+            <button type="submit" class="btn btn-primary">Send</button>
+          </form>
+        </div>
+        <!-- File Upload Tab -->
+        <div class="tab-pane" id="uploadTab">
+          <h2>Upload File</h2>
+          <form id="upload-form" enctype="multipart/form-data">
+            <div class="form-group">
+              <input type="file" class="form-control-file" name="file">
+            </div>
+            <button type="submit" class="btn btn-primary">Upload &amp; Index</button>
+          </form>
+          <div id="upload-result" class="mt-3"></div>
+        </div>
+        <!-- URL Input Tab -->
+        <div class="tab-pane" id="urlTab">
+          <h2>Process URL Content</h2>
+          <form id="url-form">
+            <div class="form-group">
+              <input type="text" class="form-control" id="url-input" placeholder="Enter URL">
+            </div>
+            <button type="submit" class="btn btn-primary">Fetch &amp; Index</button>
+          </form>
+          <div id="url-result" class="mt-3"></div>
+        </div>
+        <!-- KQL Query Tab -->
+        <div class="tab-pane" id="kqlTab">
+          <h2>Execute KQL Query</h2>
+          <form id="kql-form">
+            <div class="form-group">
+              <input type="text" class="form-control" id="kql-query" placeholder="Enter full KQL query">
+            </div>
+            <button type="submit" class="btn btn-primary">Run KQL Query</button>
+          </form>
+          <div id="kql-result" class="mt-3"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+<!-- jQuery and Bootstrap JS -->
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+<script>
+// Function to render markdown using marked.js
+function renderMarkdown(selector) {
+  var element = document.querySelector(selector);
+  if (element) {
+    element.innerHTML = marked(element.innerText);
+  }
+}
+
+// Auto-scroll chat history to bottom.
+function scrollChatToBottom() {
+  var chatDiv = document.getElementById("chat-history");
+  chatDiv.scrollTop = chatDiv.scrollHeight;
+}
+
+// Check for KQL code block in a message and add "Execute Suggested KQL" button.
+function checkForKqlButton(messageHtml, messageContainer) {
+  var regex = /```kusto\s*([\s\S]+?)```/i;
+  var match = messageHtml.match(regex);
+  if (match) {
+    var suggestedQuery = match[1].trim();
+    var buttonHtml = '<button class="btn btn-sm btn-warning suggested-kql-btn">Execute Suggested KQL</button>';
+    messageContainer.innerHTML += buttonHtml;
+    messageContainer.querySelector('.suggested-kql-btn').addEventListener('click', function(){
+      $.post('/kql', {query: suggestedQuery}, function(data){
+        if (data.error) {
+          alert(data.error);
+        } else {
+          var newMessageHtml = '<div class="card mb-2"><div class="card-body"><strong>Suggested KQL Query Executed:</strong><p>' +
+            data.query + '</p><strong>Results:</strong>' + data.table_html +
+            '<strong>Summary:</strong><p>' + data.summary + '</p></div></div>';
+          $('#chat-history').append(newMessageHtml);
+          scrollChatToBottom();
+        }
+      });
+    });
+  }
+}
+
+$(document).ready(function(){
+  // Chat form submission.
+  $('#chat-form').on('submit', function(e){
+    e.preventDefault();
+    var prompt = $('#chat-prompt').val();
+    $.post('/chat', {prompt: prompt}, function(data){
+      if (data.error) {
+        alert(data.error);
+      } else {
+        var messageHtml = '<div class="card mb-2"><div class="card-body"><strong>Prompt:</strong><p>' +
+          data.prompt + '</p><strong>Response:</strong><p class="chat-response">' +
+          data.response + '</p></div></div>';
+        $('#chat-history').append(messageHtml);
+        renderMarkdown('.chat-response');
+        var lastCard = document.querySelector("#chat-history .card:last-child .card-body");
+        if (lastCard) {
+          checkForKqlButton(lastCard.innerHTML, lastCard);
+        }
+        $('#chat-prompt').val('');
+        scrollChatToBottom();
+      }
+    });
+  });
+  
+  // File upload submission.
+  $('#upload-form').on('submit', function(e){
+    e.preventDefault();
+    var formData = new FormData($(this)[0]);
+    $.ajax({
+      url: '/upload',
+      type: 'POST',
+      data: formData,
+      processData: false,
+      contentType: false,
+      success: function(data){
+        if (data.error) {
+          alert(data.error);
+        } else {
+          $('#upload-result').html('<h5>File: ' + data.file + '</h5><div>' + data.content + '</div><p>' + data.message + '</p>');
+        }
+      }
+    });
+  });
+  
+  // URL submission.
+  $('#url-form').on('submit', function(e){
+    e.preventDefault();
+    var url = $('#url-input').val();
+    $.post('/upload_url', {url: url}, function(data){
+      if (data.error) {
+        alert(data.error);
+      } else {
+        $('#url-result').html('<h5>URL: ' + data.url + '</h5><div>' + data.content + '</div><p>' + data.message + '</p>');
+      }
+    });
+  });
+  
+  // KQL form submission.
+  $('#kql-form').on('submit', function(e){
+    e.preventDefault();
+    var query = $('#kql-query').val();
+    $.post('/kql', {query: query}, function(data){
+      if (data.error) {
+        alert(data.error);
+      } else {
+        var resultHtml = '<h5>Query:</h5><p>' + data.query + '</p>';
+        resultHtml += '<h5>Results:</h5>' + data.table_html;
+        resultHtml += '<h5>Summary:</h5><p id="kql-summary">' + data.summary + '</p>';
+        resultHtml += '<button id="ingest-kql-btn" class="btn btn-success mt-2">Ingest to Vector DB</button>';
+        $('#kql-result').html(resultHtml);
+        $('#ingest-kql-btn').on('click', function(){
+          $.post('/ingest_kql', {query: data.query, summary: data.summary}, function(ingestData){
+            alert(ingestData.message);
+          });
+        });
+      }
+    });
+  });
+});
+</script>
+</body>
+</html>
