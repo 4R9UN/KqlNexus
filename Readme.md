@@ -15,7 +15,7 @@ To get started with KqlNexus, follow these steps:
 
 1. Clone the repository:  
     ```bash  
-    git clone https://github.com/your-repo/KqlNexus.git  
+    git clone https://github.com/4R9UN/KqlNexus.git  
     ```  
 
 2. Navigate to the directory:  
